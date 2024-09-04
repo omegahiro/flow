@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Max Flow Web App</title>
+    <style>
+        #cy {
+            width: 100%;
+            height: 600px;
+            display: block;
+            border: 1px solid black;
+        }
+
+        #controls {
+            margin: 10px 0;
+        }
+    </style>
+    <script src="https://unpkg.com/cytoscape@3.21.0/dist/cytoscape.min.js"></script>
+</head>
+
+<body>
+
+    <div id="cy"></div>
+    <div id="controls">
+        <button id="calculate-flow">Calculate Max Flow</button>
+    </div>
+    <div id="flow-result"></div>
+    <div id="cy-status" style="margin-top: 20px; border-top: 1px solid black; padding-top: 10px;"></div>
+
+
+    <script>
+        // Initialize Cytoscape
+        let cy = cytoscape({
+            container: document.getElementById('cy'),
+            style: [
+                {
+                    selector: 'node',
+                    style: {
+                        'label': 'data(id)',
+                        'background-color': 'data(color)',
+                        'text-valign': 'center',
+                        'color': '#fff',
+                        'text-outline-width': 1,
+                        'text-outline-color': '#888',
+                    }
+                },
+                {
+                    selector: 'edge',
+                    style: {
+                        'label': 'data(flow)',
+                        'curve-style': 'bezier',
+                        'target-arrow-shape': 'triangle',
+                        'line-color': '#ddd',
+                        'target-arrow-color': '#ddd',
+                        'width': 4
+                    }
+                },
+                {
+                    selector: '.highlighted',
+                    style: {
+                        'background-color': '#61bffc',
+                        'line-color': '#61bffc',
+                        'target-arrow-color': '#61bffc',
+                        'transition-property': 'background-color, line-color, target-arrow-color',
+                        'transition-duration': '0.5s'
+                    }
+                }
+            ],
+            elements: [
+                // Start and Goal nodes
+                { data: { id: 'Start', color: 'green' } },
+                { data: { id: 'Goal', color: 'green' } }
+            ]
+        });
+
+        let selectedNodes = [];
+
+        // Add node on click at the clicked position
+        cy.on('tap', function (event) {
+            let target = event.target;
+
+            // When background is clicked (not on an existing node/edge)
+            if (target === cy) {
+                let id = prompt('Enter node name');
+                if (id) {
+                    // Get the position where the user clicked
+                    let position = event.position;
+
+                    // Add node at the clicked position
+                    cy.add({
+                        group: 'nodes',
+                        data: { id: id, color: 'blue' },
+                        position: { x: position.x, y: position.y }
+                    });
+                }
+            }
+            // When edge is clicked
+            else if (target.isEdge()) {
+                let newFlow = prompt('Enter new flow value', target.data('flow'));
+                if (newFlow === '0') {
+                    cy.remove(target); // Remove edge if flow is 0
+                } else {
+                    target.data('flow', newFlow); // Update flow value
+                }
+            }
+        });
+
+        // Create edge between two nodes
+        cy.on('tap', 'node', function (event) {
+            let node = event.target;
+
+            selectedNodes.push(node);
+
+            if (selectedNodes.length === 2) {
+                let source = selectedNodes[0];
+                let target = selectedNodes[1];
+
+                let flow = prompt('Enter flow value for the edge');
+                if (flow) {
+                    cy.add({
+                        group: 'edges',
+                        data: { id: `${source.id()}-${target.id()}`, source: source.id(), target: target.id(), flow: flow }
+                    });
+                }
+                selectedNodes = [];
+            }
+        });
+
+        // Right-click (contextmenu) to delete a node except for 'Start' and 'Goal', and prevent deletion if edges exist
+        cy.on('cxttap', 'node', function (event) {
+            let node = event.target;
+
+            // Prevent deletion of Start and Goal nodes
+            if (node.id() === 'Start' || node.id() === 'Goal') {
+                alert('Start and Goal nodes cannot be deleted.');
+                return;
+            }
+
+            // Check if the node has any connected edges
+            let connectedEdges = node.connectedEdges();
+
+            if (connectedEdges.length > 0) {
+                alert('Node cannot be deleted because it has connected edges.');
+                return;
+            }
+
+            // Confirm deletion if no connected edges
+            if (confirm('Do you want to delete this node?')) {
+                cy.remove(node); // Remove the node
+            }
+        });
+
+
+
+        // Edmonds-Karp Algorithm
+        function edmondsKarp(cy, source, sink) {
+            let flow = 0;
+            let residual = {};
+
+            // Initialize residual graph
+            cy.edges().forEach(edge => {
+                let u = edge.source().id();
+                let v = edge.target().id();
+                let capacity = parseInt(edge.data('flow'));
+
+                if (!residual[u]) residual[u] = {};
+                if (!residual[v]) residual[v] = {};
+
+                residual[u][v] = capacity;
+                residual[v][u] = 0; // reverse edge starts with 0 capacity
+            });
+
+            function bfs() {
+                let queue = [source];
+                let parent = {};
+                let visited = new Set();
+                visited.add(source);
+
+                while (queue.length > 0) {
+                    let u = queue.shift();
+
+                    for (let v in residual[u]) {
+                        if (!visited.has(v) && residual[u][v] > 0) {
+                            queue.push(v);
+                            visited.add(v);
+                            parent[v] = u;
+
+                            if (v === sink) {
+                                let path = [];
+                                let cur = v;
+                                let minCapacity = Infinity;
+
+                                while (cur !== source) {
+                                    path.push(cur);
+                                    let prev = parent[cur];
+                                    minCapacity = Math.min(minCapacity, residual[prev][cur]);
+                                    cur = prev;
+                                }
+
+                                path.push(source);
+                                path.reverse();
+                                return { path, minCapacity };
+                            }
+                        }
+                    }
+                }
+
+                return null;
+            }
+
+            let augmentingPath;
+            while ((augmentingPath = bfs())) {
+                let { path, minCapacity } = augmentingPath;
+
+                // Augment flow along the path
+                for (let i = 0; i < path.length - 1; i++) {
+                    let u = path[i];
+                    let v = path[i + 1];
+                    residual[u][v] -= minCapacity;
+                    residual[v][u] += minCapacity;
+                }
+
+                flow += minCapacity;
+            }
+
+            return flow;
+        }
+
+        // Calculate max flow when button is clicked and display result at the bottom
+        document.getElementById('calculate-flow').addEventListener('click', function () {
+            let maxFlow = edmondsKarp(cy, 'Start', 'Goal');
+
+            // Display the result in the 'flow-result' div
+            document.getElementById('flow-result').textContent = 'Max Flow: ' + maxFlow;
+        });
+
+
+        // Function to update the status display
+        function updateStatus() {
+            let nodes = cy.nodes().map(node => node.id()).join(', ');
+            let edges = cy.edges().map(edge => `${edge.source().id()} -> ${edge.target().id()} (Flow: ${edge.data('flow')})`).join(', ');
+
+            let statusText = `Nodes: ${nodes} | Edges: ${edges}`;
+            document.getElementById('cy-status').textContent = statusText;
+        }
+
+        // Update status on changes
+        cy.on('add', 'node', updateStatus);
+        cy.on('add', 'edge', updateStatus);
+        cy.on('remove', 'node', updateStatus);
+        cy.on('remove', 'edge', updateStatus);
+        cy.on('data', 'node', updateStatus);
+        cy.on('data', 'edge', updateStatus);
+
+        // Initial update
+        updateStatus();
+    </script>
+
+</body>
+
+</html>
