@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flow Network Visualization</title>
+    <script src="https://unpkg.com/cytoscape@3.23.0/dist/cytoscape.min.js"></script>
+    <style>
+        #cy {
+            width: 100%;
+            height: 600px;
+            border: 1px solid black;
+        }
+        #routeList {
+            margin-top: 20px;
+        }
+        .edge-label {
+            display: inline-block;
+            position: relative;
+        }
+        .edge-label span {
+            position: absolute;
+            right: 0;
+            top: 0;
+            background-color: white;
+            padding: 2px 4px;
+            border: 1px solid black;
+            font-size: 12px;
+            color: black;
+        }
+    </style>
+</head>
+<body>
+
+<button onclick="saveGraph()">Save Graph</button>
+<button onclick="loadGraph()">Load Graph</button>
+
+<div id="cy"></div>
+
+<button onclick="addNode()">Add Node</button>
+<button onclick="addEdge()">Add Edge</button>
+<button onclick="addRoute()">Add Route</button>
+<button onclick="removeElement()">Remove Selected</button>
+<button onclick="changeElementName()">Change Name</button>
+
+<div id="routeList">
+    <h3>Routes:</h3>
+    <ul id="routeDisplay"></ul>
+</div>
+
+<button onclick="deleteRoute()">Delete Route</button>
+<button onclick="changeRouteName()">Change Route Name</button>
+
+<script>
+    // Initialize Cytoscape
+    let cy = cytoscape({
+        container: document.getElementById('cy'),
+        style: [
+            {
+                selector: 'node',
+                style: {
+                    'label': 'data(id)',
+                    'text-valign': 'center',
+                    'text-halign': 'center',
+                    'background-color': '#0074D9',
+                    'color': '#fff',
+                    'text-outline-color': '#0074D9',
+                    'text-outline-width': 2
+                }
+            },
+            {
+                selector: 'edge',
+                style: {
+                    'width': 4,
+                    'line-color': '#ddd',
+                    'target-arrow-color': '#ddd',
+                    'target-arrow-shape': 'triangle',
+                    'curve-style': 'bezier',
+                    'label': 'data(id)',
+                    'text-background-opacity': 1,
+                    'text-background-color': 'white'
+                }
+            }
+        ],
+        elements: []
+    });
+
+    let nodeIdCounter = 0;
+    let edgeIdCounter = 0;
+    let routeIdCounter = 0;
+    let routes = [];
+
+    // Function to add a new node
+    function addNode() {
+        const nodeId = `n${++nodeIdCounter}`;
+        cy.add({
+            group: 'nodes',
+            data: { id: nodeId },
+            position: { x: Math.random() * 600, y: Math.random() * 400 }
+        });
+    }
+
+    // Function to add a new edge between two nodes
+    function addEdge() {
+        const sourceNode = prompt('Enter source node ID:');
+        const targetNode = prompt('Enter target node ID:');
+        
+        if (sourceNode === null || targetNode === null) {
+            return;
+        }
+
+        if (cy.getElementById(sourceNode) && cy.getElementById(targetNode)) {
+            const edgeId = `e${++edgeIdCounter}`;
+            cy.add({
+                group: 'edges',
+                data: { id: edgeId, source: sourceNode, target: targetNode, label: `${edgeId} (0)` }
+            });
+        } else {
+            alert('Invalid node IDs.');
+        }
+    }
+
+    // Function to remove selected node or edge
+    function removeElement() {
+        const selected = cy.$(':selected');
+        if (selected.length > 0) {
+            cy.remove(selected);
+        } else {
+            alert('No element selected.');
+        }
+    }
+
+    // Function to change the name of the selected node or edge
+    function changeElementName() {
+        const selected = cy.$(':selected');
+        if (selected.length > 0) {
+            const newName = prompt('Enter new name:');
+            selected.data('id', newName);
+            selected.id(newName);
+        } else {
+            alert('No element selected.');
+        }
+    }
+
+    // Function to add a route (sequence of edges)
+    function addRoute() {
+        const edgeNames = prompt('Enter edge names (comma separated):');
+
+        if (edgeNames) {
+            const edgeIds = edgeNames.split(',').map(name => name.trim());
+            let valid = true;
+
+            edgeIds.forEach(edgeId => {
+                if (!cy.getElementById(edgeId).length) {
+                    valid = false;
+                    alert(`Edge ${edgeId} does not exist.`);
+                }
+            });
+
+            for (let i = 0; i < edgeIds.length - 1; i++) {
+                const source = cy.getElementById(edgeIds[i]).data('target');
+                const target = cy.getElementById(edgeIds[i + 1]).data('source');
+                if (source !== target) {
+                    valid = false;
+                    alert(`Edges ${edgeIds[i]} and ${edgeIds[i + 1]} are not connected.`);
+                }
+            }
+
+            if (valid) {
+                const route = {
+                    id: `r${++routeIdCounter}`,
+                    edges: edgeIds,
+                    startNode: cy.getElementById(edgeIds[0]).data('source'),
+                    endNode: cy.getElementById(edgeIds[edgeIds.length - 1]).data('target')
+                };
+                routes.push(route);
+
+                updateRouteList();
+                updateEdgeLabels();
+            }
+        } else {
+            alert('No edge names entered.');
+        }
+    }
+
+    // Function to delete a route
+    function deleteRoute() {
+        const routeId = prompt('Enter route ID to delete:');
+        if (routeId) {
+            routes = routes.filter(route => route.id !== routeId);
+            updateRouteList();
+            updateEdgeLabels();
+            alert('Route deleted.');
+        } else {
+            alert('No route ID entered.');
+        }
+    }
+
+    // Function to change the name of a route
+    function changeRouteName() {
+        const routeId = prompt('Enter route ID to change name:');
+        const newName = prompt('Enter new name for the route:');
+        if (routeId && newName) {
+            const route = routes.find(route => route.id === routeId);
+            if (route) {
+                route.id = newName;
+                updateRouteList();
+                updateEdgeLabels();
+                alert('Route name changed.');
+            } else {
+                alert('Route ID not found.');
+            }
+        } else {
+            alert('No route ID or new name entered.');
+        }
+    }
+
+    // Function to update the route list display
+    function updateRouteList() {
+        const routeDisplay = document.getElementById('routeDisplay');
+        routeDisplay.innerHTML = '';
+        routes.forEach(route => {
+            const listItem = document.createElement('li');
+            listItem.textContent = `${route.id}(${route.startNode}-${route.endNode})  ${route.edges.join(' -> ')}`;
+            routeDisplay.appendChild(listItem);
+        });
+    }
+
+    // Function to update the edge labels with their total flow
+    function updateEdgeLabels() {
+        let edgeFlows = {};
+
+        routes.forEach(route => {
+            route.edges.forEach(edgeId => {
+                edgeFlows[edgeId] = (edgeFlows[edgeId] || 0) + 1;
+            });
+        });
+
+        cy.edges().forEach(edge => {
+            const edgeId = edge.id();
+            const totalFlow = edgeFlows[edgeId] || 0;
+            edge.data('label', `${edgeId} (${totalFlow})`);
+        });
+
+        cy.style()
+            .selector('edge')
+            .style({
+                'label': 'data(label)'
+            })
+            .update();
+    }
+
+    // Function to save the graph data to local storage
+    function saveGraph() {
+        const elements = cy.json().elements;
+        const graphData = {
+            elements: elements,
+            routes: routes,
+            nodeIdCounter: nodeIdCounter,
+            edgeIdCounter: edgeIdCounter,
+            routeIdCounter: routeIdCounter
+        };
+        localStorage.setItem('graphData', JSON.stringify(graphData));
+        alert('Graph data saved.');
+    }
+
+    // Function to load the graph data from local storage
+    function loadGraph() {
+        const graphData = localStorage.getItem('graphData');
+        if (graphData) {
+            const parsedData = JSON.parse(graphData);
+            cy.json({ elements: parsedData.elements });
+            routes = parsedData.routes;
+            nodeIdCounter = parsedData.nodeIdCounter;
+            edgeIdCounter = parsedData.edgeIdCounter;
+            routeIdCounter = parsedData.routeIdCounter;
+            updateRouteList();
+            updateEdgeLabels();
+            alert('Graph data loaded.');
+        } else {
+            alert('No graph data found.');
+        }
+    }
+
+    // Enable node and edge selection
+    cy.on('tap', 'node, edge', function(event) {
+        cy.$(':selected').unselect();
+        event.target.select();
+    });
+</script>
+
+</body>
+</html>
